@@ -1,0 +1,11 @@
+plugins {
+    id 'java-library'
+}
+
+dependencies {
+    api project(':cdc-pact-core')
+    api 'org.junit.jupiter:junit-jupiter-api'
+    api 'org.springframework.boot:spring-boot-test'
+    api 'org.springframework:spring-test'
+    implementation 'com.fasterxml.jackson.core:jackson-databind'
+}

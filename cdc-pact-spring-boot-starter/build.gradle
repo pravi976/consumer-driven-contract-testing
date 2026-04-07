@@ -1,0 +1,11 @@
+plugins {
+    id 'java-library'
+}
+
+dependencies {
+    api project(':cdc-pact-core')
+    api project(':cdc-pact-test-support')
+    api project(':cdc-pact-provider-test-support')
+    implementation 'org.springframework.boot:spring-boot-autoconfigure'
+    implementation 'org.springframework:spring-context'
+}

@@ -1,0 +1,8 @@
+plugins {
+    id 'java-library'
+}
+
+dependencies {
+    api project(':cdc-pact-core')
+    implementation 'org.springframework:spring-web'
+}

@@ -1,0 +1,22 @@
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        mavenCentral()
+    }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        mavenCentral()
+    }
+}
+
+rootProject.name = 'consumer-driven-contract-testing'
+
+include 'cdc-pact-core'
+include 'cdc-pact-spring-boot-starter'
+include 'cdc-pact-test-support'
+include 'cdc-pact-broker'
+include 'cdc-pact-sample-app'
+include 'cdc-pact-provider-test-support'
