@@ -28,6 +28,10 @@ import java.util.UUID;
 @Component
 public class PactSampleFactory {
     public Object sample(Class<?> type) {
+        return sample((Type) type);
+    }
+
+    public Object sample(Type type) {
         return sample((Type) type, "root", 0);
     }
 

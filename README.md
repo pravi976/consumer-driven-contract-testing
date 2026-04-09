@@ -95,6 +95,34 @@ public record CustomerResponseExpectation(
 }
 ```
 
+## Auto Expectation Generation (REST + JMS)
+
+If you want to avoid writing manual expectation classes, enable scanner-driven auto generation:
+
+```text
+cdc.expectations.auto=true
+```
+
+When enabled:
+
+- REST expectations are auto-generated from Feign-style client interfaces.
+- JMS expectations are auto-generated from `@JmsListener` methods.
+
+Optional overrides:
+
+```text
+cdc.consumer.name=<consumer-name>
+cdc.jms.default.provider=<provider-name>
+```
+
+Environment variable alternatives:
+
+```text
+CDC_EXPECTATIONS_AUTO=true
+CDC_CONSUMER_NAME=<consumer-name>
+CDC_JMS_DEFAULT_PROVIDER=<provider-name>
+```
+
 ## How To Run
 
 From the parent folder:

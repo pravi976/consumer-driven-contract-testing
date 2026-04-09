@@ -253,6 +253,34 @@ Process:
 6. Publish generated Pact files to Pact Broker.
 ```
 
+### Auto Generate Expectations (No Manual Expectation Classes)
+
+For teams that want fully automated expectation discovery:
+
+```text
+cdc.expectations.auto=true
+```
+
+With this enabled, framework scans the consumer app and auto-creates:
+
+- REST expectations from Feign-style client interfaces.
+- JMS expectations from `@JmsListener` methods.
+
+Optional properties:
+
+```text
+cdc.consumer.name=orders-service
+cdc.jms.default.provider=shipment-events-provider
+```
+
+Environment alternatives:
+
+```text
+CDC_EXPECTATIONS_AUTO=true
+CDC_CONSUMER_NAME=orders-service
+CDC_JMS_DEFAULT_PROVIDER=shipment-events-provider
+```
+
 Recommended quality gates:
 
 - Each interaction description must be unique per consumer/provider/type.
