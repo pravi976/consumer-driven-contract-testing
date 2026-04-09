@@ -12,12 +12,17 @@ import java.lang.reflect.Type;
 import java.lang.reflect.TypeVariable;
 import java.lang.reflect.WildcardType;
 import java.math.BigDecimal;
+import java.math.BigInteger;
+import java.net.URI;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 @Component
@@ -71,6 +76,9 @@ public class PactSampleFactory {
         if (type == long.class || type == Long.class) {
             return 1001L;
         }
+        if (type == BigInteger.class) {
+            return BigInteger.valueOf(1001L);
+        }
         if (type == double.class || type == Double.class || type == float.class || type == Float.class) {
             return 199.95;
         }
@@ -86,8 +94,17 @@ public class PactSampleFactory {
         if (type == LocalDateTime.class) {
             return LocalDateTime.of(2026, 4, 6, 10, 30);
         }
+        if (type == LocalTime.class) {
+            return LocalTime.of(10, 30);
+        }
         if (type == Instant.class) {
             return Instant.parse("2026-04-06T10:30:00Z");
+        }
+        if (type == OffsetDateTime.class) {
+            return OffsetDateTime.parse("2026-04-06T10:30:00Z");
+        }
+        if (type == URI.class) {
+            return URI.create("https://example.fedex.cdc/path");
         }
         if (type.isEnum()) {
             return type.getEnumConstants()[0];
@@ -131,6 +148,15 @@ public class PactSampleFactory {
             map.put(key, value != null ? value : path + "-value");
             return map;
         }
+        if (Optional.class.isAssignableFrom(rawClass)) {
+            Type wrapped = type.getActualTypeArguments().length > 0 ? type.getActualTypeArguments()[0] : String.class;
+            return sample(wrapped, path, depth + 1);
+        }
+        if ("org.openapitools.jackson.nullable.JsonNullable".equals(rawClass.getName())) {
+            Type wrapped = type.getActualTypeArguments().length > 0 ? type.getActualTypeArguments()[0] : String.class;
+            Object value = sample(wrapped, path, depth + 1);
+            return value != null ? value : path + "-value";
+        }
 
         return sampleClass(rawClass, path, depth);
     }
@@ -159,6 +185,11 @@ public class PactSampleFactory {
             PactExample example = annotation(field, record, PactExample.class);
             if (example != null) {
                 values.put(field.getName(), coerce(example.value(), field.getType()));
+                continue;
+            }
+            String schemaExample = schemaExample(field, record);
+            if (schemaExample != null && !schemaExample.isBlank()) {
+                values.put(field.getName(), coerce(schemaExample, field.getType()));
                 continue;
             }
             Type memberType = record != null ? record.getGenericType() : field.getGenericType();
@@ -207,5 +238,33 @@ public class PactSampleFactory {
             annotation = record.getAnnotation(annotationType);
         }
         return annotation;
+    }
+
+    private String schemaExample(Field field, RecordComponent record) {
+        String fieldValue = schemaExampleFromAnnotations(field.getAnnotations());
+        if (fieldValue != null && !fieldValue.isBlank()) {
+            return fieldValue;
+        }
+        if (record == null) {
+            return null;
+        }
+        return schemaExampleFromAnnotations(record.getAnnotations());
+    }
+
+    private String schemaExampleFromAnnotations(java.lang.annotation.Annotation[] annotations) {
+        for (java.lang.annotation.Annotation annotation : annotations) {
+            if (!"Schema".equals(annotation.annotationType().getSimpleName())) {
+                continue;
+            }
+            try {
+                Object value = annotation.annotationType().getMethod("example").invoke(annotation);
+                if (value instanceof String text && !text.isBlank()) {
+                    return text;
+                }
+            } catch (ReflectiveOperationException ignored) {
+                // Best effort only: annotation might not expose "example".
+            }
+        }
+        return null;
     }
 }

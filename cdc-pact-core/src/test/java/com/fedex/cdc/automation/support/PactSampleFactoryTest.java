@@ -2,8 +2,14 @@ package com.fedex.cdc.automation.support;
 
 import org.junit.jupiter.api.Test;
 
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.net.URI;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -40,6 +46,22 @@ class PactSampleFactoryTest {
         assertTrue(root.get("price") instanceof Double);
     }
 
+    @Test
+    void usesSchemaExampleWhenPresent() {
+        Map<?, ?> root = (Map<?, ?>) factory.sample(SchemaAnnotatedExpectation.class);
+        assertEquals("TRACK-001", root.get("trackingNumber"));
+        assertEquals(42, root.get("pieces"));
+    }
+
+    @Test
+    void samplesOptionalAndCommonOpenApiDateTypes() {
+        Map<?, ?> root = (Map<?, ?>) factory.sample(OpenApiTypeExpectation.class);
+        assertTrue(root.get("maybeReference") instanceof String);
+        assertTrue(root.get("readyAt") instanceof OffsetDateTime);
+        assertTrue(root.get("docUri") instanceof URI);
+        assertTrue(root.get("shipmentId") instanceof UUID);
+    }
+
     record ItemExpectation(String sku, int quantity) {
     }
 
@@ -48,5 +70,22 @@ class PactSampleFactoryTest {
             Map<String, ItemExpectation> itemMap,
             Map<String, Integer> counters,
             double price) {
+    }
+
+    record SchemaAnnotatedExpectation(
+            @Schema(example = "TRACK-001") String trackingNumber,
+            @Schema(example = "42") int pieces) {
+    }
+
+    record OpenApiTypeExpectation(
+            Optional<String> maybeReference,
+            OffsetDateTime readyAt,
+            URI docUri,
+            UUID shipmentId) {
+    }
+
+    @Retention(RetentionPolicy.RUNTIME)
+    @interface Schema {
+        String example() default "";
     }
 }
