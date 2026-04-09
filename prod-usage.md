@@ -262,6 +262,39 @@ Recommended quality gates:
 - Sensitive fields must be masked with `********`.
 - Contract generation must run in pull requests before merge.
 
+### OpenAPI/Swagger Generated Models And Custom Generated Paths
+
+If your consumer uses OpenAPI/Swagger Gradle generation (for stubs/entities/models), the framework can scan generated model sources and include them in sample payload generation.
+
+Default scanned path:
+
+```text
+build/generated
+```
+
+To override with one or more custom generated folders, set:
+
+```text
+cdc.openapi.generated.path
+```
+
+Examples:
+
+```powershell
+.\gradlew.bat test -Dcdc.openapi.generated.path="build/generated,build/generated-sources/openapi"
+```
+
+```text
+CDC_OPENAPI_GENERATED_PATH=build/generated;custom-output/openapi
+```
+
+Use this in GitHub Actions when generated models are not under the default path:
+
+```yaml
+- name: Run consumer contract tests
+  run: ./gradlew test -Dcdc.openapi.generated.path="build/generated,custom-output/openapi"
+```
+
 ## 7. Publishing Generated Contracts To Pact Broker
 
 The current `cdc-pact-broker` module is prepared as a broker integration module but does not yet include a full publish client.

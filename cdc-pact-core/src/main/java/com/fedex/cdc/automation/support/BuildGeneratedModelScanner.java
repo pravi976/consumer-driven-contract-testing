@@ -18,23 +18,56 @@ import java.util.stream.Stream;
 @Component
 public class BuildGeneratedModelScanner {
     private static final Pattern PACKAGE_PATTERN = Pattern.compile("^\\s*package\\s+([a-zA-Z0-9_.]+)\\s*;\\s*$", Pattern.MULTILINE);
+    private static final List<String> DEFAULT_PATHS = List.of("build/generated");
 
     public GeneratedModelInsights scan(Path projectDir) {
-        Path generatedRoot = projectDir.resolve("build").resolve("generated");
-        if (!Files.isDirectory(generatedRoot)) {
-            return GeneratedModelInsights.notDetected(generatedRoot);
-        }
+        return scan(projectDir, DEFAULT_PATHS);
+    }
 
+    public GeneratedModelInsights scan(Path projectDir, List<String> configuredPaths) {
+        List<String> effectivePaths = sanitizePaths(configuredPaths);
+        List<Path> scannedRoots = new ArrayList<>();
         Set<String> models = new LinkedHashSet<>();
-        try (Stream<Path> stream = Files.walk(generatedRoot)) {
-            stream.filter(Files::isRegularFile)
-                    .filter(this::isSourceFile)
-                    .forEach(path -> maybeAddModelFqcn(path, models));
-        } catch (IOException ex) {
-            throw new IllegalStateException("Failed scanning generated models under " + generatedRoot, ex);
+
+        for (String configuredPath : effectivePaths) {
+            Path generatedRoot = resolvePath(projectDir, configuredPath);
+            scannedRoots.add(generatedRoot);
+            if (!Files.isDirectory(generatedRoot)) {
+                continue;
+            }
+            try (Stream<Path> stream = Files.walk(generatedRoot)) {
+                stream.filter(Files::isRegularFile)
+                        .filter(this::isSourceFile)
+                        .forEach(path -> maybeAddModelFqcn(path, models));
+            } catch (IOException ex) {
+                throw new IllegalStateException("Failed scanning generated models under " + generatedRoot, ex);
+            }
         }
 
-        return new GeneratedModelInsights(!models.isEmpty(), generatedRoot, List.copyOf(models));
+        if (scannedRoots.isEmpty()) {
+            scannedRoots.add(resolvePath(projectDir, DEFAULT_PATHS.get(0)));
+        }
+        return new GeneratedModelInsights(!models.isEmpty(), scannedRoots, List.copyOf(models));
+    }
+
+    private List<String> sanitizePaths(List<String> configuredPaths) {
+        List<String> raw = (configuredPaths == null || configuredPaths.isEmpty()) ? DEFAULT_PATHS : configuredPaths;
+        List<String> result = new ArrayList<>();
+        for (String path : raw) {
+            if (path == null) {
+                continue;
+            }
+            String trimmed = path.trim();
+            if (!trimmed.isEmpty()) {
+                result.add(trimmed);
+            }
+        }
+        return result.isEmpty() ? DEFAULT_PATHS : result;
+    }
+
+    private Path resolvePath(Path projectDir, String configuredPath) {
+        Path candidate = Path.of(configuredPath);
+        return candidate.isAbsolute() ? candidate : projectDir.resolve(candidate);
     }
 
     private boolean isSourceFile(Path path) {
@@ -77,9 +110,9 @@ public class BuildGeneratedModelScanner {
         return null;
     }
 
-    public record GeneratedModelInsights(boolean detected, Path generatedRoot, List<String> modelClasses) {
+    public record GeneratedModelInsights(boolean detected, List<Path> scannedRoots, List<String> modelClasses) {
         static GeneratedModelInsights notDetected(Path generatedRoot) {
-            return new GeneratedModelInsights(false, generatedRoot, new ArrayList<>());
+            return new GeneratedModelInsights(false, List.of(generatedRoot), new ArrayList<>());
         }
     }
 }

@@ -134,6 +134,34 @@ cdc-pact-sample-app/build/pacts/h2-targeted/consumer-driven-contract-testing-pac
 cdc-pact-sample-app/build/pacts/h2-targeted/consumer-driven-contract-testing-pact-jms-h2-sample-consumer-driven-jms.json
 ```
 
+## OpenAPI Generated Models Support
+
+The framework now supports OpenAPI/Swagger generated model workflows.
+
+During generation it:
+
+1. Scans `build.gradle` / `build.gradle.kts` for OpenAPI/Swagger generation signals.
+2. Scans generated model classes under `build/generated` by default.
+3. Uses generated model types when creating Pact payload samples.
+
+If your generated sources are in a custom location, configure:
+
+```text
+cdc.openapi.generated.path
+```
+
+You can provide one or more paths (comma or semicolon separated):
+
+```powershell
+.\gradlew.bat test -Dcdc.openapi.generated.path="build/generated,custom-output/openapi"
+```
+
+Environment variable alternative:
+
+```text
+CDC_OPENAPI_GENERATED_PATH=build/generated;custom-output/openapi
+```
+
 ## How To Add A New Expectation
 
 1. Add a DTO under `cdc-pact-sample-app/src/main/java/com/fedex/cdc/sample/dto`.

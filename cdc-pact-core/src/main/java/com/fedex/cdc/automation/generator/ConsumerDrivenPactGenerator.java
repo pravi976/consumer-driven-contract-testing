@@ -10,6 +10,7 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.logging.Logger;
 
@@ -61,16 +62,48 @@ public class ConsumerDrivenPactGenerator {
                 + " via signals: " + String.join(", ", insights.signals())
                 + ". Consumer-driven-contract-testing will generate Pact payloads from generated model types.");
 
-        BuildGeneratedModelScanner.GeneratedModelInsights models = generatedModelScanner.scan(projectDir);
+        List<String> configuredPaths = resolveGeneratedModelPaths();
+        BuildGeneratedModelScanner.GeneratedModelInsights models = generatedModelScanner.scan(projectDir, configuredPaths);
         if (models.detected()) {
             int sampleSize = Math.min(5, models.modelClasses().size());
             LOGGER.info(() -> "Detected " + models.modelClasses().size() + " generated model classes under "
-                    + models.generatedRoot() + ". Sample: "
+                    + joinPaths(models.scannedRoots()) + ". Sample: "
                     + String.join(", ", models.modelClasses().subList(0, sampleSize)));
         } else {
-            LOGGER.info(() -> "No generated model classes found under " + models.generatedRoot()
+            LOGGER.info(() -> "No generated model classes found under " + joinPaths(models.scannedRoots())
                     + ". If OpenAPI tasks run in a different phase/path, configure generation before CDC test execution.");
         }
+    }
+
+    private List<String> resolveGeneratedModelPaths() {
+        String raw = firstNonBlank(
+                System.getProperty("cdc.openapi.generated.path"),
+                System.getenv("CDC_OPENAPI_GENERATED_PATH"));
+        if (raw == null) {
+            return List.of("build/generated");
+        }
+        List<String> paths = new ArrayList<>();
+        for (String token : raw.split("[,;]")) {
+            String trimmed = token.trim();
+            if (!trimmed.isEmpty()) {
+                paths.add(trimmed);
+            }
+        }
+        return paths.isEmpty() ? List.of("build/generated") : paths;
+    }
+
+    private String firstNonBlank(String first, String second) {
+        if (first != null && !first.isBlank()) {
+            return first;
+        }
+        if (second != null && !second.isBlank()) {
+            return second;
+        }
+        return null;
+    }
+
+    private String joinPaths(List<Path> paths) {
+        return paths.stream().map(Path::toString).reduce((left, right) -> left + ", " + right).orElse("build/generated");
     }
 }
 

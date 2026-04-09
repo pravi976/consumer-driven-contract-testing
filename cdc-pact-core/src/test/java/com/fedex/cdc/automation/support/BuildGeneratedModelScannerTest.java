@@ -5,6 +5,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -43,5 +44,23 @@ class BuildGeneratedModelScannerTest {
         BuildGeneratedModelScanner.GeneratedModelInsights insights = scanner.scan(tempDir);
 
         assertFalse(insights.detected());
+    }
+
+    @Test
+    void supportsCustomGeneratedPaths(@TempDir Path tempDir) throws Exception {
+        Path modelFile = tempDir.resolve("custom-output/openapi/src/com/fedex/demo/model/TaskPayload.java");
+        Files.createDirectories(modelFile.getParent());
+        Files.writeString(modelFile, """
+                package com.fedex.demo.model;
+
+                public class TaskPayload {}
+                """);
+
+        BuildGeneratedModelScanner.GeneratedModelInsights insights =
+                scanner.scan(tempDir, List.of("custom-output/openapi"));
+
+        assertTrue(insights.detected());
+        assertEquals(1, insights.modelClasses().size());
+        assertEquals("com.fedex.demo.model.TaskPayload", insights.modelClasses().get(0));
     }
 }
