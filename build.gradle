@@ -21,6 +21,10 @@ subprojects {
     apply plugin: 'io.spring.dependency-management'
     apply plugin: 'maven-publish'
 
+    dependencies {
+        testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    }
+
     java {
         toolchain {
             languageVersion = JavaLanguageVersion.of(17)

@@ -29,8 +29,11 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Ensure Gradle Wrapper Is Executable
+        run: chmod +x ./gradlew
+
       - name: Test and Publish CDC Artifacts
-        run: gradle --no-daemon clean test publish --stacktrace
+        run: ./gradlew --no-daemon clean test publish --stacktrace
         env:
           GH_PACKAGES_USER: ${{ github.actor }}
           GH_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
