@@ -1,0 +1,86 @@
+name: Framework CI Publish
+
+on:
+  push:
+    branches: [ "main" ]
+    tags: [ "v*" ]
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  JAVA_VERSION: "17"
+
+jobs:
+  test-and-publish-artifacts:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Test and Publish CDC Artifacts
+        run: gradle --no-daemon clean test publish --stacktrace
+        env:
+          GH_PACKAGES_USER: ${{ github.actor }}
+          GH_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CDC_GITHUB_PACKAGES_URL: https://maven.pkg.github.com/${{ github.repository }}
+
+  build-and-push-framework-image:
+    runs-on: ubuntu-latest
+    needs: test-and-publish-artifacts
+    if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and Push Framework Image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/consumer-driven-contract-testing:${{ github.sha }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/consumer-driven-contract-testing:latest
+
+  deploy-framework-job-to-k8s:
+    runs-on: ubuntu-latest
+    needs: build-and-push-framework-image
+    if: ${{ secrets.KUBE_CONFIG_DATA != '' && secrets.DOCKERHUB_USERNAME != '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p "${HOME}/.kube"
+          echo "${KUBE_CONFIG_DATA}" | base64 -d > "${HOME}/.kube/config"
+        env:
+          KUBE_CONFIG_DATA: ${{ secrets.KUBE_CONFIG_DATA }}
+
+      - name: Run Framework Job in Kubernetes
+        run: |
+          sed "s|__IMAGE__|${DOCKERHUB_USERNAME}/consumer-driven-contract-testing:${GITHUB_SHA}|g" k8s/cdc-framework-job.yaml | kubectl apply -f -
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}

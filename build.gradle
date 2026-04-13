@@ -3,6 +3,14 @@ plugins {
     id 'io.spring.dependency-management' version '1.1.6' apply false
 }
 
+def publishableModules = [
+        'cdc-pact-core',
+        'cdc-pact-spring-boot-starter',
+        'cdc-pact-test-support',
+        'cdc-pact-provider-test-support',
+        'cdc-pact-broker'
+]
+
 allprojects {
     group = 'com.fedex.cdc'
     version = '1.0.0-SNAPSHOT'
@@ -11,6 +19,7 @@ allprojects {
 subprojects {
     apply plugin: 'java'
     apply plugin: 'io.spring.dependency-management'
+    apply plugin: 'maven-publish'
 
     java {
         toolchain {
@@ -31,5 +40,41 @@ subprojects {
     tasks.withType(Test).configureEach {
         useJUnitPlatform()
         maxParallelForks = 1
+    }
+
+    if (publishableModules.contains(project.name)) {
+        tasks.withType(org.gradle.api.publish.tasks.GenerateModuleMetadata).configureEach {
+            suppressedValidationErrors.add('dependencies-without-versions')
+        }
+
+        publishing {
+            publications {
+                mavenJava(MavenPublication) {
+                    from components.java
+                    artifactId = project.name
+                }
+            }
+
+            repositories {
+                mavenLocal()
+
+                def explicitRepoUrl = findProperty('cdc.githubPackagesUrl') ?: System.getenv('CDC_GITHUB_PACKAGES_URL')
+                def inferredRepoUrl = System.getenv('GITHUB_REPOSITORY') != null
+                        ? "https://maven.pkg.github.com/${System.getenv('GITHUB_REPOSITORY')}"
+                        : null
+                def githubRepoUrl = explicitRepoUrl ?: inferredRepoUrl
+
+                if (githubRepoUrl != null && !githubRepoUrl.isBlank()) {
+                    maven {
+                        name = 'GitHubPackages'
+                        url = uri(githubRepoUrl)
+                        credentials {
+                            username = findProperty('gpr.user') ?: System.getenv('GH_PACKAGES_USER') ?: System.getenv('GITHUB_ACTOR')
+                            password = findProperty('gpr.key') ?: System.getenv('GH_PACKAGES_TOKEN') ?: System.getenv('GITHUB_TOKEN')
+                        }
+                    }
+                }
+            }
+        }
     }
 }

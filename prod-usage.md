@@ -693,3 +693,46 @@ cd C:\Users\pravi\spring-services\pact-jms-h2-sample
 ```
 
 All three should pass before publishing framework changes.
+
+## 17. Decoupled GitHub Actions + Kubernetes Delivery (April 13, 2026)
+
+The framework and sample apps now support dependency-based integration (no `includeBuild` coupling).
+
+### Framework repository (`consumer-driven-contract-testing`)
+
+- Workflow: `.github/workflows/framework-ci-publish.yml`
+- Publishes `cdc-pact-*` artifacts to GitHub Packages.
+- Builds/pushes framework image to Docker Hub.
+- Optionally executes Kubernetes smoke Job with `k8s/cdc-framework-job.yaml`.
+
+### Consumer repository (`cdc-docker-consumer`)
+
+- Workflow: `.github/workflows/consumer-cdc.yml`
+- Generates and publishes consumer pacts.
+- Runs `can-i-deploy` before image promotion.
+- Pushes image to Docker Hub and deploys Kubernetes manifests in `k8s/`.
+- Records deployment in Pact Broker.
+
+### Provider repository (`cdc-docker-provider`)
+
+- Workflow: `.github/workflows/provider-cdc.yml`
+- Verifies provider against Pact Broker and publishes verification.
+- Runs `can-i-deploy` gate.
+- Pushes image to Docker Hub and deploys Kubernetes manifests in `k8s/`.
+- Records deployment in Pact Broker.
+
+### Required secrets for app repositories
+
+- `GH_PACKAGES_TOKEN` (PAT with `read:packages`)
+- `PACT_BROKER_BASE_URL`
+- `PACT_BROKER_USERNAME`
+- `PACT_BROKER_PASSWORD`
+- `DOCKERHUB_USERNAME`
+- `DOCKERHUB_TOKEN`
+- `KUBE_CONFIG_DATA` (base64 kubeconfig)
+
+### Required repository variables for app repositories
+
+- `CDC_FRAMEWORK_VERSION`
+- `CDC_PACKAGES_OWNER`
+- `CDC_PACKAGES_REPO`

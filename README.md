@@ -219,3 +219,116 @@ implementation 'com.fedex.cdc:cdc-pact-spring-boot-starter:1.0.0-SNAPSHOT'
 The starter brings in the core annotations, generator, Spring Boot auto-configuration, and reusable test support. Keep expectation declarations consumer-owned. Use filters for targeted runs instead of deleting expectation classes.
 
 See `details.md` for every file name and responsibility.
+
+## Docker Desktop Support
+
+The framework root includes a container build file:
+
+```text
+consumer-driven-contract-testing/Dockerfile
+```
+
+Use it to build/test/publish framework artifacts in Docker:
+
+```powershell
+docker build -t consumer-driven-contract-testing:local .
+```
+
+For a full standalone provider/consumer CDC + Pact Broker + can-i-deploy demo, use:
+
+```text
+consumer-driven-contract-testing/docker-demo
+```
+
+The demo uses separate Spring Boot apps located outside this repo:
+
+```text
+C:\Users\pravi\spring-services\cdc-docker-consumer
+C:\Users\pravi\spring-services\cdc-docker-provider
+```
+
+Run instructions are documented in:
+
+```text
+consumer-driven-contract-testing/docker-demo/README.md
+```
+
+## GitHub Actions + Kubernetes Deployment
+
+Framework CI workflow:
+
+```text
+.github/workflows/framework-ci-publish.yml
+```
+
+This workflow:
+
+1. Runs framework tests.
+2. Publishes `cdc-pact-*` modules to GitHub Packages.
+3. Builds and pushes framework Docker image to Docker Hub.
+4. Optionally runs a Kubernetes `Job` smoke execution.
+
+Required secrets in this repository:
+
+- `DOCKERHUB_USERNAME`
+- `DOCKERHUB_TOKEN`
+- `KUBE_CONFIG_DATA` (base64 kubeconfig, optional)
+
+Kubernetes manifests:
+
+```text
+k8s/cdc-framework-job.yaml
+k8s/pact-broker.yaml
+```
+
+`k8s/pact-broker.yaml` deploys Pact Broker and Postgres using Docker Hub images (`pactfoundation/pact-broker`, `postgres`).
+
+### Publish Framework Artifacts Manually
+
+```powershell
+cd C:\Users\pravi\spring-services\consumer-driven-contract-testing
+gradle clean test publishToMavenLocal --stacktrace
+```
+
+## Step-By-Step Cross-Repo Validation (Consumer + Provider)
+
+Use these three repositories together:
+
+1. `consumer-driven-contract-testing`
+2. `cdc-docker-consumer`
+3. `cdc-docker-provider`
+
+### 1. Build framework artifacts
+
+```powershell
+cd C:\Users\pravi\spring-services\consumer-driven-contract-testing
+gradle clean publishToMavenLocal --stacktrace
+```
+
+### 2. Generate consumer contracts
+
+```powershell
+cd C:\Users\pravi\spring-services\cdc-docker-consumer
+gradle clean test --stacktrace
+```
+
+Pacts are generated under:
+
+```text
+C:\Users\pravi\spring-services\cdc-docker-consumer\build\pacts
+```
+
+### 3. Validate provider against generated pacts
+
+```powershell
+cd C:\Users\pravi\spring-services\cdc-docker-provider
+$env:PACT_FOLDER="C:\Users\pravi\spring-services\cdc-docker-consumer\build\pacts"
+gradle clean test --tests "com.fedex.cdc.demo.provider.InventoryProviderLocalPactVerificationTest" --stacktrace
+```
+
+### 4. Docker-based provider verification (optional)
+
+```powershell
+docker build --target provider-tests -t cdc-docker-provider-tests:local -f C:\Users\pravi\spring-services\cdc-docker-provider\Dockerfile C:\Users\pravi\spring-services
+docker run --rm -e PACT_FOLDER=/pacts -v C:\Users\pravi\spring-services\cdc-docker-consumer\build\pacts:/pacts cdc-docker-provider-tests:local /bin/bash -lc "gradle --no-daemon clean test --tests com.fedex.cdc.demo.provider.InventoryProviderLocalPactVerificationTest --stacktrace"
+```

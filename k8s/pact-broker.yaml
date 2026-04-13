@@ -1,0 +1,97 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pact-broker-secret
+type: Opaque
+stringData:
+  PACT_BROKER_DATABASE_PASSWORD: pact
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pact-broker-db
+  labels:
+    app: pact-broker-db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pact-broker-db
+  template:
+    metadata:
+      labels:
+        app: pact-broker-db
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: pact
+            - name: POSTGRES_USER
+              value: pact
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: pact-broker-secret
+                  key: PACT_BROKER_DATABASE_PASSWORD
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pact-broker-db
+spec:
+  selector:
+    app: pact-broker-db
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pact-broker
+  labels:
+    app: pact-broker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pact-broker
+  template:
+    metadata:
+      labels:
+        app: pact-broker
+    spec:
+      containers:
+        - name: pact-broker
+          image: pactfoundation/pact-broker:latest
+          ports:
+            - containerPort: 9292
+          env:
+            - name: PACT_BROKER_DATABASE_ADAPTER
+              value: postgres
+            - name: PACT_BROKER_DATABASE_HOST
+              value: pact-broker-db
+            - name: PACT_BROKER_DATABASE_NAME
+              value: pact
+            - name: PACT_BROKER_DATABASE_USERNAME
+              value: pact
+            - name: PACT_BROKER_DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: pact-broker-secret
+                  key: PACT_BROKER_DATABASE_PASSWORD
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pact-broker
+spec:
+  selector:
+    app: pact-broker
+  ports:
+    - port: 9292
+      targetPort: 9292
