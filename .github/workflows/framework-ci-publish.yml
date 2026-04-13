@@ -45,46 +45,52 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Login to Docker Hub
-        if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
       - name: Build and Push Framework Image
-        if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/consumer-driven-contract-testing:${{ github.sha }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/consumer-driven-contract-testing:latest
+        run: |
+          if [ -z "${DOCKERHUB_USERNAME:-}" ] || [ -z "${DOCKERHUB_TOKEN:-}" ]; then
+            echo "Docker Hub credentials not set. Skipping image build/push."
+            exit 0
+          fi
+          echo "${DOCKERHUB_TOKEN}" | docker login -u "${DOCKERHUB_USERNAME}" --password-stdin
+          docker buildx create --use --name cdc-builder || true
+          docker buildx build \
+            --push \
+            -t "${DOCKERHUB_USERNAME}/consumer-driven-contract-testing:${GITHUB_SHA}" \
+            -t "${DOCKERHUB_USERNAME}/consumer-driven-contract-testing:latest" \
+            .
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
   deploy-framework-job-to-k8s:
     runs-on: ubuntu-latest
     needs: build-and-push-framework-image
     steps:
       - name: Checkout
-        if: ${{ secrets.KUBE_CONFIG_DATA != '' && secrets.DOCKERHUB_USERNAME != '' }}
         uses: actions/checkout@v4
 
       - name: Set up kubectl
-        if: ${{ secrets.KUBE_CONFIG_DATA != '' && secrets.DOCKERHUB_USERNAME != '' }}
         uses: azure/setup-kubectl@v4
 
       - name: Configure kubeconfig
-        if: ${{ secrets.KUBE_CONFIG_DATA != '' && secrets.DOCKERHUB_USERNAME != '' }}
         run: |
+          if [ -z "${KUBE_CONFIG_DATA:-}" ] || [ -z "${DOCKERHUB_USERNAME:-}" ]; then
+            echo "Kubernetes config or Docker Hub username not set. Skipping kubeconfig setup."
+            exit 0
+          fi
           mkdir -p "${HOME}/.kube"
           echo "${KUBE_CONFIG_DATA}" | base64 -d > "${HOME}/.kube/config"
         env:
           KUBE_CONFIG_DATA: ${{ secrets.KUBE_CONFIG_DATA }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
 
       - name: Run Framework Job in Kubernetes
-        if: ${{ secrets.KUBE_CONFIG_DATA != '' && secrets.DOCKERHUB_USERNAME != '' }}
         run: |
+          if [ -z "${KUBE_CONFIG_DATA:-}" ] || [ -z "${DOCKERHUB_USERNAME:-}" ]; then
+            echo "Kubernetes config or Docker Hub username not set. Skipping deployment."
+            exit 0
+          fi
           sed "s|__IMAGE__|${DOCKERHUB_USERNAME}/consumer-driven-contract-testing:${GITHUB_SHA}|g" k8s/cdc-framework-job.yaml | kubectl apply -f -
         env:
+          KUBE_CONFIG_DATA: ${{ secrets.KUBE_CONFIG_DATA }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
