@@ -26,6 +26,7 @@ class ConsumerPactScannerAutoGenerationTest {
         System.clearProperty(FLAG);
         System.clearProperty("cdc.consumer.name");
         System.clearProperty("cdc.jms.default.provider");
+        System.clearProperty("cdc.rest.default.provider");
     }
 
     @Test
@@ -33,9 +34,11 @@ class ConsumerPactScannerAutoGenerationTest {
         System.setProperty(FLAG, "true");
         System.setProperty("cdc.consumer.name", "auto-consumer");
         System.setProperty("cdc.jms.default.provider", "auto-jms-provider");
+        System.setProperty("cdc.rest.default.provider", "auto-rest-provider");
 
         try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
             context.registerBean(FeignClientBean.class);
+            context.registerBean(WebClientProxyBean.class);
             context.registerBean(JmsConsumerBean.class);
             context.refresh();
 
@@ -44,8 +47,12 @@ class ConsumerPactScannerAutoGenerationTest {
             List<ConsumerInteractionDefinition> rest = scanner.scanRestInteractions(context);
             List<ConsumerMessageDefinition> jms = scanner.scanMessageInteractions(context);
 
-            assertEquals(1, rest.size());
-            ConsumerInteractionDefinition interaction = rest.get(0);
+            assertEquals(2, rest.size());
+
+            ConsumerInteractionDefinition interaction = rest.stream()
+                    .filter(it -> "pricing-provider".equals(it.provider()))
+                    .findFirst()
+                    .orElseThrow();
             assertEquals("auto-consumer", interaction.consumer());
             assertEquals("pricing-provider", interaction.provider());
             assertEquals("POST", interaction.method());
@@ -53,13 +60,33 @@ class ConsumerPactScannerAutoGenerationTest {
             assertNotNull(interaction.requestBody());
             assertNotNull(interaction.responseBody());
 
-            assertEquals(1, jms.size());
-            ConsumerMessageDefinition message = jms.get(0);
+            ConsumerInteractionDefinition webClientInteraction = rest.stream()
+                    .filter(it -> "auto-rest-provider".equals(it.provider()))
+                    .findFirst()
+                    .orElseThrow();
+            assertEquals("GET", webClientInteraction.method());
+            assertEquals("/api/webclient/status/{id}", webClientInteraction.path());
+            assertNotNull(webClientInteraction.responseBody());
+
+            assertEquals(2, jms.size());
+            ConsumerMessageDefinition message = jms.stream()
+                    .filter(it -> "shipment.quote.events".equals(it.destination()))
+                    .findFirst()
+                    .orElseThrow();
             assertEquals("auto-consumer", message.consumer());
             assertEquals("auto-jms-provider", message.provider());
             assertEquals("shipment.quote.events", message.destination());
             assertFalse(message.metadata().isEmpty());
             assertTrue(message.metadata().containsKey("contentType"));
+
+            ConsumerMessageDefinition outbound = jms.stream()
+                    .filter(it -> "shipment.waypoint.requests".equals(it.destination()))
+                    .findFirst()
+                    .orElseThrow();
+            assertEquals("auto-consumer", outbound.consumer());
+            assertEquals("auto-jms-provider", outbound.provider());
+            assertEquals("shipment.waypoint.requests", outbound.destination());
+            assertNotNull(outbound.body());
         }
     }
 
@@ -76,9 +103,24 @@ class ConsumerPactScannerAutoGenerationTest {
         }
     }
 
+    @HttpExchange(url = "/api/webclient")
+    interface TrackingWebClient {
+        @GetExchange(url = "/status/{id}")
+        TrackingStatus getStatus(String id);
+    }
+
+    static class WebClientProxyBean implements TrackingWebClient {
+        @Override
+        public TrackingStatus getStatus(String id) {
+            return null;
+        }
+    }
+
     static class JmsConsumerBean {
         @JmsListener(destination = "shipment.quote.events")
-        public void consume(@Payload QuoteEvent message) {
+        @SendTo("shipment.waypoint.requests")
+        public WaypointEvent consume(@Payload QuoteEvent message) {
+            return null;
         }
     }
 
@@ -89,6 +131,12 @@ class ConsumerPactScannerAutoGenerationTest {
     }
 
     record QuoteEvent(String quoteId, String status) {
+    }
+
+    record TrackingStatus(String id, String state) {
+    }
+
+    record WaypointEvent(String quoteId, String waypointCode) {
     }
 
     @Retention(RetentionPolicy.RUNTIME)
@@ -135,5 +183,29 @@ class ConsumerPactScannerAutoGenerationTest {
     @Retention(RetentionPolicy.RUNTIME)
     @Target(ElementType.PARAMETER)
     @interface Payload {
+    }
+
+    @Retention(RetentionPolicy.RUNTIME)
+    @Target(ElementType.METHOD)
+    @interface SendTo {
+        String[] value() default {};
+    }
+
+    @Retention(RetentionPolicy.RUNTIME)
+    @Target({ElementType.TYPE, ElementType.METHOD})
+    @interface HttpExchange {
+        String url() default "";
+
+        String value() default "";
+
+        String method() default "";
+    }
+
+    @Retention(RetentionPolicy.RUNTIME)
+    @Target(ElementType.METHOD)
+    @interface GetExchange {
+        String url() default "";
+
+        String value() default "";
     }
 }

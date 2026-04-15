@@ -1,0 +1,149 @@
+name: cdc-docker-demo
+
+services:
+  pact-broker-db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: pactbroker
+      POSTGRES_PASSWORD: pactbroker
+      POSTGRES_DB: pactbroker
+    ports:
+      - "5432:5432"
+
+  pact-broker:
+    image: pactfoundation/pact-broker:latest
+    depends_on:
+      - pact-broker-db
+    environment:
+      PACT_BROKER_DATABASE_ADAPTER: postgres
+      PACT_BROKER_DATABASE_USERNAME: pactbroker
+      PACT_BROKER_DATABASE_PASSWORD: pactbroker
+      PACT_BROKER_DATABASE_HOST: pact-broker-db
+      PACT_BROKER_DATABASE_NAME: pactbroker
+      PACT_BROKER_LOG_LEVEL: INFO
+    ports:
+      - "9292:9292"
+
+  consumer-contract-tests:
+    build:
+      context: ../..
+      dockerfile: cdc-docker-consumer/Dockerfile
+      target: contract-tests
+    volumes:
+      - pact-published:/pacts-published
+    command:
+      - /bin/bash
+      - -lc
+      - |
+        rm -f src/main/resources/data.sql build/resources/main/data.sql
+        gradle --no-daemon clean test --stacktrace
+        mkdir -p /pacts-published
+        cp -v build/pacts/*.json /pacts-published/
+    profiles: ["pipeline"]
+
+  publish-consumer-pacts-v1:
+    image: pactfoundation/pact-cli:latest
+    depends_on:
+      - pact-broker
+    volumes:
+      - pact-published:/pacts-published
+    command:
+      - /bin/sh
+      - -lc
+      - |
+        pact-broker publish /pacts-published/*.json \
+          --broker-base-url http://host.docker.internal:9292 \
+          --consumer-app-version 2.3.0 \
+          --branch main
+    profiles: ["pipeline"]
+
+  publish-consumer-pacts-v2:
+    image: pactfoundation/pact-cli:latest
+    depends_on:
+      - pact-broker
+    volumes:
+      - pact-published:/pacts-published
+    command:
+      - /bin/sh
+      - -lc
+      - |
+        pact-broker publish /pacts-published/*.json \
+          --broker-base-url http://host.docker.internal:9292 \
+          --consumer-app-version 2.4.0 \
+          --branch release-2026
+    profiles: ["pipeline"]
+
+  provider-pact-verification:
+    build:
+      context: ../..
+      dockerfile: cdc-docker-provider/Dockerfile
+      target: provider-tests
+    depends_on:
+      - pact-broker
+    environment:
+      PACT_BROKER_BASE_URL: http://host.docker.internal:9292
+      GITHUB_SHA: 5.7.0
+      GITHUB_REF_NAME: main
+    command:
+      - /bin/bash
+      - -lc
+      - |
+        gradle --no-daemon clean test --stacktrace
+    profiles: ["pipeline"]
+
+  can-i-deploy-check:
+    image: pactfoundation/pact-cli:latest
+    depends_on:
+      - pact-broker
+    command:
+      - /bin/sh
+      - -lc
+      - |
+        pact-broker can-i-deploy \
+          --broker-base-url http://host.docker.internal:9292 \
+          --pacticipant supply-orders-consumer \
+          --version 2.3.0 \
+          --to-environment production \
+          --retry-while-unknown 6 \
+          --retry-interval 10
+    profiles: ["pipeline"]
+
+  record-provider-production-deployment:
+    image: pactfoundation/pact-cli:latest
+    depends_on:
+      - pact-broker
+    command:
+      - /bin/sh
+      - -lc
+      - |
+        pact-broker record-deployment \
+          --broker-base-url http://host.docker.internal:9292 \
+          --pacticipant supply-inventory-provider \
+          --version 5.7.0 \
+          --environment production
+    profiles: ["pipeline"]
+
+  provider-app:
+    build:
+      context: ../..
+      dockerfile: cdc-docker-provider/Dockerfile
+      target: runtime
+    ports:
+      - "8082:8082"
+    profiles: ["runtime"]
+
+  consumer-app:
+    build:
+      context: ../..
+      dockerfile: cdc-docker-consumer/Dockerfile
+      target: runtime
+    depends_on:
+      - provider-app
+    environment:
+      PROVIDER_BASE_URL: http://provider-app:8082
+    ports:
+      - "8081:8081"
+    profiles: ["runtime"]
+
+volumes:
+  pact-published:

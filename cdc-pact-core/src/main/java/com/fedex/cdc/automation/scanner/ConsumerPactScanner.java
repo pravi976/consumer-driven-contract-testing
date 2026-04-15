@@ -104,14 +104,17 @@ public class ConsumerPactScanner {
             Class<?> beanType = ClassUtils.getUserClass(bean.getClass());
             for (Class<?> candidate : feignCandidates(beanType)) {
                 Annotation feign = findAnnotation(candidate, "org.springframework.cloud.openfeign.FeignClient", "FeignClient");
-                if (feign == null) {
+                Annotation httpExchange = findAnnotation(candidate, "org.springframework.web.service.annotation.HttpExchange", "HttpExchange");
+                if (feign == null && httpExchange == null) {
                     continue;
                 }
-                String provider = firstNonBlank(annotationString(feign, "name"),
-                        annotationString(feign, "value"),
-                        annotationString(feign, "contextId"),
-                        "unknown-provider");
-                String classPath = firstNonBlank(annotationString(feign, "path"), classLevelPath(candidate), "");
+                String provider = resolveRestProvider(feign, candidate);
+                String classPath = firstNonBlank(
+                        annotationString(feign, "path"),
+                        annotationString(httpExchange, "url"),
+                        annotationString(httpExchange, "value"),
+                        classLevelPath(candidate),
+                        "");
                 for (Method method : candidate.getMethods()) {
                     HttpMapping mapping = methodMapping(method);
                     if (mapping == null) {
@@ -139,6 +142,32 @@ public class ConsumerPactScanner {
             }
         }
         return definitions;
+    }
+
+    private String resolveRestProvider(Annotation feign, Class<?> candidate) {
+        String fromFeign = firstNonBlank(
+                annotationString(feign, "name"),
+                annotationString(feign, "value"),
+                annotationString(feign, "contextId"));
+        if (fromFeign != null) {
+            return fromFeign;
+        }
+        String configured = firstNonBlank(
+                System.getProperty("cdc.rest.default.provider"),
+                System.getenv("CDC_REST_DEFAULT_PROVIDER"));
+        if (configured != null) {
+            return configured;
+        }
+        String simple = candidate.getSimpleName()
+                .replaceAll("Client$", "")
+                .replaceAll("Api$", "");
+        if (simple.isBlank()) {
+            simple = "rest";
+        }
+        String normalized = simple.replaceAll("([a-z])([A-Z])", "$1-$2")
+                .replaceAll("[^a-zA-Z0-9]+", "-")
+                .toLowerCase();
+        return normalized + "-provider";
     }
 
     private List<ConsumerMessageDefinition> scanAutoMessageInteractions(ApplicationContext context) {
@@ -172,6 +201,22 @@ public class ConsumerPactScanner {
                         destination,
                         metadata,
                         sampleFactory.sample(bodyType)));
+
+                String publishDestination = outboundJmsDestination(method);
+                Type publishBodyType = outboundJmsPayloadType(method);
+                if (publishDestination != null && publishBodyType != null) {
+                    Map<String, String> publishMetadata = new LinkedHashMap<>();
+                    publishMetadata.put("contentType", "application/json");
+                    publishMetadata.put("destination", publishDestination);
+                    definitions.add(new ConsumerMessageDefinition(
+                            consumerName,
+                            provider,
+                            "auto jms publish expectation for " + publishDestination,
+                            "",
+                            publishDestination,
+                            publishMetadata,
+                            sampleFactory.sample(publishBodyType)));
+                }
             }
         }
         return definitions;
@@ -228,20 +273,37 @@ public class ConsumerPactScanner {
         Annotation delete = findAnnotation(method, null, "DeleteMapping");
         if (delete != null) return new HttpMapping("DELETE", firstPath(delete), 200);
         Annotation request = findAnnotation(method, "org.springframework.web.bind.annotation.RequestMapping", "RequestMapping");
-        if (request == null) {
-            return null;
+        if (request != null) {
+            String path = firstPath(request);
+            String methodName = "GET";
+            Object methodValue = annotationValue(request, "method");
+            if (methodValue instanceof Object[] array && array.length > 0 && array[0] != null) {
+                methodName = String.valueOf(array[0]);
+            }
+            return new HttpMapping(methodName, path, 200);
         }
-        String path = firstPath(request);
-        String methodName = "GET";
-        Object methodValue = annotationValue(request, "method");
-        if (methodValue instanceof Object[] array && array.length > 0 && array[0] != null) {
-            methodName = String.valueOf(array[0]);
+
+        Annotation getExchange = findAnnotation(method, "org.springframework.web.service.annotation.GetExchange", "GetExchange");
+        if (getExchange != null) return new HttpMapping("GET", firstPath(getExchange), 200);
+        Annotation postExchange = findAnnotation(method, "org.springframework.web.service.annotation.PostExchange", "PostExchange");
+        if (postExchange != null) return new HttpMapping("POST", firstPath(postExchange), 200);
+        Annotation putExchange = findAnnotation(method, "org.springframework.web.service.annotation.PutExchange", "PutExchange");
+        if (putExchange != null) return new HttpMapping("PUT", firstPath(putExchange), 200);
+        Annotation patchExchange = findAnnotation(method, "org.springframework.web.service.annotation.PatchExchange", "PatchExchange");
+        if (patchExchange != null) return new HttpMapping("PATCH", firstPath(patchExchange), 200);
+        Annotation deleteExchange = findAnnotation(method, "org.springframework.web.service.annotation.DeleteExchange", "DeleteExchange");
+        if (deleteExchange != null) return new HttpMapping("DELETE", firstPath(deleteExchange), 200);
+        Annotation httpExchange = findAnnotation(method, "org.springframework.web.service.annotation.HttpExchange", "HttpExchange");
+        if (httpExchange != null) {
+            String methodName = firstNonBlank(annotationString(httpExchange, "method"), "GET");
+            return new HttpMapping(methodName, firstPath(httpExchange), 200);
         }
-        return new HttpMapping(methodName, path, 200);
+        return null;
     }
 
     private String firstPath(Annotation annotation) {
         return firstNonBlank(annotationString(annotation, "path"),
+                annotationString(annotation, "url"),
                 firstFromArray(annotationValue(annotation, "value")),
                 "");
     }
@@ -290,6 +352,36 @@ public class ConsumerPactScanner {
         return null;
     }
 
+    private String outboundJmsDestination(Method method) {
+        Annotation sendTo = findAnnotation(method, "org.springframework.messaging.handler.annotation.SendTo", "SendTo");
+        if (sendTo == null) {
+            sendTo = findAnnotation(method, "org.springframework.jms.annotation.SendTo", "SendTo");
+        }
+        if (sendTo == null) {
+            return null;
+        }
+        return firstNonBlank(
+                firstFromArray(annotationValue(sendTo, "value")),
+                annotationString(sendTo, "destination"));
+    }
+
+    private Type outboundJmsPayloadType(Method method) {
+        Type returnType = unwrapContainerType(method.getGenericReturnType());
+        if (returnType == null || returnType == Void.class || returnType == Void.TYPE) {
+            return null;
+        }
+        if (returnType instanceof Class<?> typeClass) {
+            String pkg = typeClass.getPackageName();
+            if (pkg.startsWith("org.springframework.jms")
+                    || pkg.startsWith("org.springframework.messaging")
+                    || pkg.startsWith("jakarta.jms")
+                    || pkg.startsWith("javax.jms")) {
+                return null;
+            }
+        }
+        return returnType;
+    }
+
     private Type unwrapContainerType(Type returnType) {
         if (returnType instanceof ParameterizedType parameterizedType && parameterizedType.getRawType() instanceof Class<?> raw) {
             String rawName = raw.getName();
@@ -322,7 +414,7 @@ public class ConsumerPactScanner {
     }
 
     private Annotation findAnyMappingAnnotation(AnnotatedElement element) {
-        for (String simple : List.of("RequestMapping", "GetMapping", "PostMapping", "PutMapping", "PatchMapping", "DeleteMapping")) {
+        for (String simple : List.of("RequestMapping", "GetMapping", "PostMapping", "PutMapping", "PatchMapping", "DeleteMapping", "HttpExchange")) {
             Annotation annotation = findAnnotation(element, null, simple);
             if (annotation != null) {
                 return annotation;
@@ -344,6 +436,9 @@ public class ConsumerPactScanner {
     }
 
     private Object annotationValue(Annotation annotation, String name) {
+        if (annotation == null) {
+            return null;
+        }
         try {
             return annotation.annotationType().getMethod(name).invoke(annotation);
         } catch (ReflectiveOperationException ex) {
@@ -352,6 +447,9 @@ public class ConsumerPactScanner {
     }
 
     private String annotationString(Annotation annotation, String name) {
+        if (annotation == null) {
+            return null;
+        }
         Object value = annotationValue(annotation, name);
         if (value instanceof String text && !text.isBlank()) {
             return text;

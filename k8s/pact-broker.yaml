@@ -25,6 +25,7 @@ spec:
       containers:
         - name: postgres
           image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 5432
           env:
@@ -41,7 +42,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: pact-broker-db
+  name: pact-broker-db-svc
 spec:
   selector:
     app: pact-broker-db
@@ -68,13 +69,14 @@ spec:
       containers:
         - name: pact-broker
           image: pactfoundation/pact-broker:latest
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 9292
           env:
             - name: PACT_BROKER_DATABASE_ADAPTER
               value: postgres
             - name: PACT_BROKER_DATABASE_HOST
-              value: pact-broker-db
+              value: pact-broker-db-svc
             - name: PACT_BROKER_DATABASE_NAME
               value: pact
             - name: PACT_BROKER_DATABASE_USERNAME
@@ -88,7 +90,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: pact-broker
+  name: pact-broker-svc
 spec:
   selector:
     app: pact-broker
